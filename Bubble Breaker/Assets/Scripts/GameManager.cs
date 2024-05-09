@@ -42,6 +42,7 @@ public class GameManager : MonoBehaviour
 
     public static Dictionary<Vector2, GameObject> bubbles;
     public static List<GameObject> matchingBubbles;
+    private static Dictionary<GameObject, int> postponeBringDown;
     private static List<Vector2> spacesToFill;
     private static List<Vector2> locationsToRepopulate;
     private static List<Vector2> bubblesToReplace;
@@ -64,6 +65,7 @@ public class GameManager : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        postponeBringDown = new Dictionary<GameObject, int>();
         bubblesToReplace = new List<Vector2>();
         matchingBubbles = new List<GameObject>();
         locationsToRepopulate = new List<Vector2>();
@@ -83,7 +85,7 @@ public class GameManager : MonoBehaviour
     }
 
     // Update is called once per frame
-    void Update()
+    void FixedUpdate()
     {
         OnTimerTick();
         if (waitBeforePullColumns)
@@ -111,24 +113,24 @@ public class GameManager : MonoBehaviour
                     int color = Random.Range(0, bubblePrefabs.Count - includeBlack);
                     bubbles.Add(location, Instantiate(bubblePrefabs[color], location, Quaternion.identity, transform));
                 }
-                else
-                {
-                    foreach (Vector2 loc in GetMissingBubbles())
-                    {
-                        int color = Random.Range(0, bubblePrefabs.Count - includeBlack);
-                        bubbles.Add(loc, Instantiate(bubblePrefabs[color], loc, Quaternion.identity, transform));
-                    }
-                }
+                //else
+                //{
+                //    foreach (Vector2 loc in GetMissingBubbles())
+                //    {
+                //        int color = Random.Range(0, bubblePrefabs.Count - includeBlack);
+                //        bubbles.Add(loc, Instantiate(bubblePrefabs[color], loc, Quaternion.identity, transform));
+                //    }
+                //}
             }
             locationsToRepopulate.Clear();
-            foreach (Vector2 loc in bubblesToReplace)
-            {
-                if (!GetBubble(loc))
-                {
-                    GetMissingBubbles();
-                    break;
-                }
-            }
+            //foreach (Vector2 loc in bubblesToReplace)
+            //{
+            //    if (!GetBubble(loc))
+            //    {
+            //        GetMissingBubbles();
+            //        break;
+            //    }
+            //}
             bubblesToReplace.Clear();
             repopulate = false;
             performingMove = false;
@@ -313,7 +315,6 @@ public class GameManager : MonoBehaviour
 
     private static List<Vector2> GetMissingBubbles()
     {
-        spacesToFill.Clear();
         float x = -2.5f;
         float y = -4.5f;
         float xVal = 0;
@@ -404,10 +405,27 @@ public class GameManager : MonoBehaviour
         }
 
         //bring bubbles down
-        for (float k = sortedColumn[0].y; k < 4.5f; k += 1)
+        for (float k = -4.5f; k < 4.5f; k += 1)
         {
-            BringNextBubbleDown(new Vector2(sortedColumn[0].x, k), sortedColumn.Count);
+            int i = 0;
+            while (i < 10 && !BringNextBubbleDown(new Vector2(sortedColumn[0].x, k + i), sortedColumn.Count))
+            {
+                i++;
+            }
         }
+        //foreach (KeyValuePair<GameObject, int> bub in postponeBringDown)
+        //{
+        //    BringNextBubbleDown(bub.Key.transform.position, bub.Value);
+        //}
+        //foreach (Vector2 loc in spacesToFill)
+        //{
+        //    int i = 0;
+        //    while (!BringNextBubbleDown(new Vector2(loc.x, loc.y + i), sortedColumn.Count) || i < 10)
+        //    {
+        //        i++;
+        //    }
+        //}
+        postponeBringDown.Clear();
         spacesToFill.Clear();
 
         //repopulate 
@@ -456,13 +474,26 @@ public class GameManager : MonoBehaviour
         {
             for (int i = 0; i < amount; i++)
             {
-                bubbles.Remove(bubble.transform.position);
                 BubbleBehavior bb = bubble.GetComponent<BubbleBehavior>();
-                bb.DropOneSpace();
-                bb.location = bubble.transform.position;
-                if (!bubbles.ContainsKey(bubble.transform.position))
+                if (bb.HasEmptySpaceBelow())
                 {
-                    bubbles.Add(bubble.transform.position, bubble);
+                    bubbles.Remove(bubble.transform.position);
+                    bb.DropOneSpace();
+
+                    if (!bubbles.ContainsKey(bubble.transform.position))
+                    {
+                        bubbles.Add(bubble.transform.position, bubble);
+                    }
+                    else
+                    {
+                    }
+                }
+                else
+                {
+                    if (!postponeBringDown.ContainsKey(bubble))
+                    {
+                        postponeBringDown.Add(bubble, amount);
+                    }
                 }
             }
             success = true;

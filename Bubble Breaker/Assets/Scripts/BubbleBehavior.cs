@@ -95,5 +95,6 @@ public class BubbleBehavior : MonoBehaviour
     public void DropOneSpace()
     {
         transform.position = new Vector2(transform.position.x, transform.position.y - 1);
+        location.y -= 1;
     }
 }
