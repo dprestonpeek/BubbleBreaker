@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using Random = UnityEngine.Random;
 
@@ -17,17 +18,27 @@ public class GameManager : MonoBehaviour
     GameObject ScorePopup;
     [SerializeField]
     TMP_Text ScorePopupText;
+    [SerializeField]
+    GameObject EndGame;
+    [SerializeField]
+    TMP_Text EndScore;
+    [SerializeField]
+    TMP_Text EndBest;
+    [SerializeField]
+    TMP_Text Timer;
 
     private static int multiplier = 1;
     private static int score;
     private static int best;
     private static int combo;
     private static int amountScorePopup;
-    private static float scorePopupInit; 
-    
-    //timer
-    private static float targetTime = 60.0f;
-    private static float timer = 0;
+    private static float scorePopupInit;
+
+    //timers
+    private static float gameTimerTarget = 0;
+    private static float gameTimer = 5;
+    private static float pullColumnsTarget = .5f;
+    private static float pullColumnsTimer = 0;
 
     [SerializeField]
     List<GameObject> bubblePrefabs = new List<GameObject>();
@@ -54,6 +65,7 @@ public class GameManager : MonoBehaviour
     private static bool pullColumns = false;
     private static bool waitBeforePullColumns = false;
     private static bool performingMove = false;
+    private static bool endGame = false;
 
     private static int audioLevel = -1;
     //set to 0 to include black
@@ -88,9 +100,22 @@ public class GameManager : MonoBehaviour
     void FixedUpdate()
     {
         OnTimerTick();
+        if (gameTimer <= gameTimerTarget)
+        {
+            //end game
+            endGame = true;
+            EndGame.SetActive(true);
+            EndScore.text = score.ToString();
+            EndBest.text = best.ToString();
+            return;
+        }
+        else
+        {
+            Timer.text = gameTimer.ToString();
+        }
         if (waitBeforePullColumns)
         {
-            if (timer >= targetTime)
+            if (pullColumnsTimer >= pullColumnsTarget)
             {
                 waitBeforePullColumns = false;
                 pullColumns = true;
@@ -113,24 +138,8 @@ public class GameManager : MonoBehaviour
                     int color = Random.Range(0, bubblePrefabs.Count - includeBlack);
                     bubbles.Add(location, Instantiate(bubblePrefabs[color], location, Quaternion.identity, transform));
                 }
-                //else
-                //{
-                //    foreach (Vector2 loc in GetMissingBubbles())
-                //    {
-                //        int color = Random.Range(0, bubblePrefabs.Count - includeBlack);
-                //        bubbles.Add(loc, Instantiate(bubblePrefabs[color], loc, Quaternion.identity, transform));
-                //    }
-                //}
             }
             locationsToRepopulate.Clear();
-            //foreach (Vector2 loc in bubblesToReplace)
-            //{
-            //    if (!GetBubble(loc))
-            //    {
-            //        GetMissingBubbles();
-            //        break;
-            //    }
-            //}
             bubblesToReplace.Clear();
             repopulate = false;
             performingMove = false;
@@ -178,7 +187,7 @@ public class GameManager : MonoBehaviour
             }
             playAudio = false;
         }
-        if (spacesToFill.Count == 0 && locationsToRepopulate.Count == 0)
+        if (spacesToFill != null && locationsToRepopulate != null && spacesToFill.Count == 0 && locationsToRepopulate.Count == 0)
         {
             performingMove = false;
         }
@@ -186,7 +195,7 @@ public class GameManager : MonoBehaviour
 
     public static void OnClick()
     {
-        if (performingMove)
+        if (performingMove || endGame)
         {
             return;
         }
@@ -202,17 +211,12 @@ public class GameManager : MonoBehaviour
 
     private static void ClickButton(Vector2 location)
     {
-        //it's not a bug, it's a feature!
-        //If we're missing a bubble, make it a bomb
-        //if (!bubbles.ContainsKey(location))
-        //{
-        //    ExplodeBomb(location);
-        //    return;
-        //}
-        bubbles.TryGetValue(location, out GameObject bubble);
+        if (!bubbles.TryGetValue(location, out GameObject bubble))
+        {
+            return;
+        }
 
         //compare bubble color to colors around
-        recentColor = bubble.GetComponent<Renderer>().material.color;
         bubble.GetComponent<BubbleBehavior>().MatchBubbles();
 
         //break bubbles from list
@@ -510,21 +514,40 @@ public class GameManager : MonoBehaviour
         }
         PlayerPrefs.SetInt("best", best);
         amountScorePopup = addToScore;
+        //add extra second for big pops
+        if (multiplier >= 3)
+        {
+            gameTimer += 1;
+        }
+        gameTimer += 1;
         showScorePopup = true;
         updateScores = true;
     }
 
     private void OnTimerTick()
     {
-        if (timer < targetTime)
+        if (pullColumnsTimer < pullColumnsTarget)
         {
-            timer += Time.deltaTime;
+            pullColumnsTimer += Time.deltaTime;
+        }
+        if (gameTimer > gameTimerTarget)
+        {
+            gameTimer -= Time.deltaTime;
         }
     }
 
     private static void SetTimer(float seconds)
     {
-        GameManager.targetTime = seconds;
-        GameManager.timer = 0;
+        pullColumnsTarget = seconds;
+        pullColumnsTimer = 0;
+    }
+
+    public void PlayAgain()
+    {
+        gameTimer = 60;
+        score = 0;
+        updateScores = true;
+        endGame = false;
+        SceneManager.LoadScene(0);
     }
 }
