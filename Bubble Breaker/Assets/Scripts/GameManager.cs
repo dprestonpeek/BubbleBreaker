@@ -36,7 +36,7 @@ public class GameManager : MonoBehaviour
 
     //timers
     private static float gameTimerTarget = 0;
-    private static float gameTimer = 5;
+    private static float gameTimer = 60;
     private static float pullColumnsTarget = .5f;
     private static float pullColumnsTimer = 0;
 
