@@ -18,6 +18,7 @@ public class GameManager : MonoBehaviour
     [SerializeField]
     TMP_Text ScorePopupText;
 
+    private static int multiplier = 1;
     private static int score;
     private static int best;
     private static int combo;
@@ -41,12 +42,17 @@ public class GameManager : MonoBehaviour
 
     public static Dictionary<Vector2, GameObject> bubbles;
     public static List<GameObject> matchingBubbles;
-    private static List<Vector2> locationsToPopulate;
+    private static List<Vector2> spacesToFill;
+    private static List<Vector2> locationsToRepopulate;
+    private static List<Vector2> bubblesToReplace;
     private static bool repopulate = false;
     private static bool updateScores = false;
     private static bool showScorePopup = false;
     private static bool showingScorePopup = false;
     private static bool playAudio = false;
+    private static bool pullColumns = false;
+    private static bool waitBeforePullColumns = false;
+    private static bool performingMove = false;
 
     private static int audioLevel = -1;
     //set to 0 to include black
@@ -58,6 +64,10 @@ public class GameManager : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        bubblesToReplace = new List<Vector2>();
+        matchingBubbles = new List<GameObject>();
+        locationsToRepopulate = new List<Vector2>();
+        spacesToFill = new List<Vector2>();
         audio = GetComponent<AudioSource>();
         bubbles = new Dictionary<Vector2, GameObject>();
         buttons = GameObject.FindObjectsOfType<Button>();
@@ -76,24 +86,52 @@ public class GameManager : MonoBehaviour
     void Update()
     {
         OnTimerTick();
-        if (repopulate)
+        if (waitBeforePullColumns)
         {
             if (timer >= targetTime)
             {
-                foreach (Vector2 location in locationsToPopulate)
+                waitBeforePullColumns = false;
+                pullColumns = true;
+            }
+        }
+        if (pullColumns)
+        {
+            if (!PullColumns()) 
+            {
+                pullColumns = false;
+                repopulate = true;
+            }
+        }
+        if (repopulate)
+        {
+            foreach (Vector2 location in locationsToRepopulate)
+            {
+                if (!bubbles.ContainsKey(location))
                 {
-                    if (!bubbles.ContainsKey(location))
+                    int color = Random.Range(0, bubblePrefabs.Count - includeBlack);
+                    bubbles.Add(location, Instantiate(bubblePrefabs[color], location, Quaternion.identity, transform));
+                }
+                else
+                {
+                    foreach (Vector2 loc in GetMissingBubbles())
                     {
                         int color = Random.Range(0, bubblePrefabs.Count - includeBlack);
-                        while (recentColor == bubblePrefabs[color].GetComponent<Renderer>().sharedMaterial.color)
-                        {
-                            color = Random.Range(0, bubblePrefabs.Count - includeBlack);
-                        }
-                        bubbles.Add(location, Instantiate(bubblePrefabs[color], location, Quaternion.identity, transform));
+                        bubbles.Add(loc, Instantiate(bubblePrefabs[color], loc, Quaternion.identity, transform));
                     }
                 }
-                repopulate = false;
             }
+            locationsToRepopulate.Clear();
+            foreach (Vector2 loc in bubblesToReplace)
+            {
+                if (!GetBubble(loc))
+                {
+                    GetMissingBubbles();
+                    break;
+                }
+            }
+            bubblesToReplace.Clear();
+            repopulate = false;
+            performingMove = false;
         }
         if (updateScores)
         {
@@ -114,7 +152,7 @@ public class GameManager : MonoBehaviour
         {
             if (ScorePopup.transform.position.y < scorePopupInit + 1)
             {
-                ScorePopup.transform.position = new Vector3(ScorePopup.transform.position.x, ScorePopup.transform.position.y + .025f, -2);
+                ScorePopup.transform.position = new Vector3(ScorePopup.transform.position.x, ScorePopup.transform.position.y + .01f, -2);
             }
             else
             {
@@ -138,82 +176,298 @@ public class GameManager : MonoBehaviour
             }
             playAudio = false;
         }
+        if (spacesToFill.Count == 0 && locationsToRepopulate.Count == 0)
+        {
+            performingMove = false;
+        }
     }
 
     public static void OnClick()
     {
-        if (matchingBubbles != null)
+        if (performingMove)
         {
-            matchingBubbles.Clear();
+            return;
         }
-        else
-        {
-            matchingBubbles = new List<GameObject>();
-        }
+        performingMove = true;
+        matchingBubbles.Clear();
         string buttonName = EventSystem.current.currentSelectedGameObject.name;
         string[] buttonXY = buttonName.Split(",");
         Vector2 location = new Vector2(float.Parse(buttonXY[0]), float.Parse(buttonXY[1]));
         recentLocation = location;
 
-        foreach (KeyValuePair<Vector2, GameObject> bubble in bubbles)
-        {
-            if (bubble.Value.transform.position.x == location.x 
-                && bubble.Value.transform.position.y == location.y)
-            {
-                //TODO:
-                //compare bubble color to colors around
-                recentColor = bubble.Value.GetComponent<Renderer>().material.color;
-                bubble.Value.GetComponent<BubbleBehavior>().MatchBubbles();
-                int multiplier = 1;
+        ClickButton(location);
+    }
 
-                //break bubbles from list
-                if (matchingBubbles.Count < 2)
-                {
-                    return;
-                }
-                else if (matchingBubbles.Count > 5)
-                {
-                    audioLevel = 3;
-                    playAudio = true;
-                    multiplier = 3 + combo;
-                    combo += 1;
-                }
-                else if (matchingBubbles.Count > 3)
-                {
-                    audioLevel = 2;
-                    playAudio = true;
-                    multiplier = 2 + combo;
-                    combo += 1;
-                }
-                else
-                {
-                    audioLevel = 1;
-                    playAudio = true;
-                    combo = 0;
-                }
-                UpdateScores(10 * matchingBubbles.Count * multiplier);
-                matchingBubbles.Add(bubble.Value);
-            }
-        }
-        if (locationsToPopulate == null)
+    private static void ClickButton(Vector2 location)
+    {
+        //it's not a bug, it's a feature!
+        //If we're missing a bubble, make it a bomb
+        //if (!bubbles.ContainsKey(location))
+        //{
+        //    ExplodeBomb(location);
+        //    return;
+        //}
+        bubbles.TryGetValue(location, out GameObject bubble);
+
+        //compare bubble color to colors around
+        recentColor = bubble.GetComponent<Renderer>().material.color;
+        bubble.GetComponent<BubbleBehavior>().MatchBubbles();
+
+        //break bubbles from list
+        if (matchingBubbles.Count < 2)
         {
-            locationsToPopulate = new List<Vector2>();
+            return;
+        }
+        else if (matchingBubbles.Count > 5)
+        {
+            audioLevel = 3;
+            playAudio = true;
+            if (multiplier < 3 + combo)
+            {
+                multiplier = 3 + combo;
+            }
+            else
+            {
+                multiplier++;
+            }
+            combo += 2;
+        }
+        else if (matchingBubbles.Count > 3)
+        {
+            audioLevel = 2;
+            playAudio = true;
+            if (multiplier < 2 + combo)
+            {
+                multiplier = 2 + combo;
+            }
+            else
+            {
+                multiplier++;
+            }
+            combo += 1;
         }
         else
         {
-            locationsToPopulate.Clear();
+            audioLevel = 1;
+            playAudio = true;
+            if (matchingBubbles.Count == 3)
+            {
+                if (multiplier > 1)
+                {
+                    multiplier -= 1;
+                }
+            }
+            else
+            {
+                multiplier = 1;
+            }
+            combo = 0;
+        }
+        UpdateScores(10 * matchingBubbles.Count * multiplier);
+        if (!matchingBubbles.Contains(bubble))
+        {
+            matchingBubbles.Add(bubble);
         }
 
         foreach (GameObject bub in matchingBubbles)
         {
-            locationsToPopulate.Add(bub.transform.position);
+            if (!spacesToFill.Contains(bub.transform.position))
+            {
+                spacesToFill.Add(bub.transform.position);
+            }
+            bubblesToReplace.Add(bub.transform.position);
             bubbles.Remove(bub.transform.position);
             Destroy(bub);
         }
 
         //replace with new bubbles.
-        SetTimer(.5f);
-        repopulate = true;
+        SetTimer(0.5f);
+        waitBeforePullColumns = true;
+    }
+
+    private static void ExplodeBomb(Vector2 location)
+    {
+        List<GameObject> bubblesToExplode = new List<GameObject>();
+        bubblesToExplode.Add(GetBubble(new Vector2(location.x - 1, location.y - 1)));
+        bubblesToExplode.Add(GetBubble(new Vector2(location.x - 1, location.y + 0)));
+        bubblesToExplode.Add(GetBubble(new Vector2(location.x - 1, location.y + 1)));
+        bubblesToExplode.Add(GetBubble(new Vector2(location.x + 0, location.y - 1)));
+        bubblesToExplode.Add(GetBubble(new Vector2(location.x + 0, location.y + 1)));
+        bubblesToExplode.Add(GetBubble(new Vector2(location.x + 1, location.y - 1)));
+        bubblesToExplode.Add(GetBubble(new Vector2(location.x + 1, location.y + 0)));
+        bubblesToExplode.Add(GetBubble(new Vector2(location.x + 1, location.y + 1)));
+        spacesToFill.Add(location);
+        for (int i = 0; i < bubblesToExplode.Count; i++)
+        {
+            spacesToFill.Add(bubblesToExplode[i].transform.position);
+            bubbles.Remove(bubblesToExplode[i].transform.position);
+            Destroy(bubblesToExplode[i]);
+        }
+        waitBeforePullColumns = true;
+    }
+
+    public void Panic()
+    {
+        GetMissingBubbles();
+    }
+
+    private static List<Vector2> GetMissingBubbles()
+    {
+        spacesToFill.Clear();
+        float x = -2.5f;
+        float y = -4.5f;
+        float xVal = 0;
+        float yVal = 0;
+        List<Vector2> missingBubbles = new List<Vector2>();
+
+        for (int i = 1; i < 10; i++)
+        {
+            xVal = x + i;
+            for (int j = 1; j < 6; j++)
+            {
+                yVal = y + i;
+                if (!GetBubble(new Vector2(xVal, yVal)))
+                {
+                    missingBubbles.Add(new Vector2(xVal, yVal));
+                }
+            }
+        }
+        return missingBubbles;
+    }
+
+    private static Dictionary<float, List<Vector2>> GetColumnsToPull()
+    {
+        Dictionary<float, List<Vector2>> columns = new Dictionary<float, List<Vector2>>();
+        foreach (Vector2 location in spacesToFill)
+        {
+            if (columns.ContainsKey(location.x))
+            {
+                columns[location.x].Add(location);
+            }
+            else
+            {
+                columns.Add(location.x, new List<Vector2>());
+                columns[location.x].Add(location);
+            }
+        }
+        return columns;
+    }
+
+    private static bool PullColumns()
+    {
+        Dictionary<float, List<Vector2>> columns = GetColumnsToPull();
+        bool didWork = false;
+        foreach (KeyValuePair<float, List<Vector2>> column in columns)
+        {
+            PullColumn(column.Value);
+            didWork = true;
+        }
+        return didWork;
+    }
+    private static void PullColumn(List<Vector2> column)
+    {
+        Vector2 lowestEmpty = Vector2.one * 100;
+        Vector2 highestEmpty = Vector2.one * -100;
+        List<Vector2> sortedColumn = new List<Vector2>();
+        sortedColumn.AddRange(column);
+
+        foreach (Vector2 location in column)
+        {
+            if (location.y < lowestEmpty.y)
+            {
+                lowestEmpty = location;
+            }
+            if (location.y > highestEmpty.y)
+            {
+                highestEmpty = location;
+            }
+        }
+
+        //sort the column
+        Vector2 low = lowestEmpty;
+        Vector2 high = highestEmpty;
+        for (int i = 0; i < column.Count; i++)
+        {
+            int lowest = i;
+
+            for (int j = i + 1; j < column.Count; j++)
+            {
+                if (sortedColumn[j].y < sortedColumn[lowest].y)
+                {
+                    lowest = j;
+                }
+            }
+
+            Vector2 temp = sortedColumn[lowest];
+            sortedColumn[lowest] = sortedColumn[i];
+            sortedColumn[i] = temp;
+        }
+
+        //bring bubbles down
+        for (float k = sortedColumn[0].y; k < 4.5f; k += 1)
+        {
+            BringNextBubbleDown(new Vector2(sortedColumn[0].x, k), sortedColumn.Count);
+        }
+        spacesToFill.Clear();
+
+        //repopulate 
+        float l = 4.5f;
+        for (int m = 0; m < sortedColumn.Count; m++)
+        {
+            locationsToRepopulate.Add(new Vector2(sortedColumn[0].x, l));
+            l -= 1;
+        }
+    }
+
+    private static bool IsSorted(List<Vector2> locations)
+    {
+        for (int i = 0; i < locations.Count - 1; i++)
+        {
+            if (locations[i].y < locations[i + 1].y)
+            {
+                continue;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static GameObject GetBubble(Vector2 location)
+    {
+        if (bubbles.ContainsKey(location))
+        {
+            return bubbles[location];
+        }
+        return null;
+    }
+
+    private static bool BringNextBubbleDown(Vector2 location, int amount)
+    {
+        bool success = false;
+        //get the bubble in the space above the given location
+        Vector2 higherLoc = new Vector2(location.x, location.y + amount);
+        GameObject bubble = GetBubble(higherLoc);
+
+        //if bubble exists, drop it one space
+        if (bubble)
+        {
+            for (int i = 0; i < amount; i++)
+            {
+                bubbles.Remove(bubble.transform.position);
+                BubbleBehavior bb = bubble.GetComponent<BubbleBehavior>();
+                bb.DropOneSpace();
+                bb.location = bubble.transform.position;
+                if (!bubbles.ContainsKey(bubble.transform.position))
+                {
+                    bubbles.Add(bubble.transform.position, bubble);
+                }
+            }
+            success = true;
+        }
+        return success;
     }
 
     private static void UpdateScores(int addToScore)

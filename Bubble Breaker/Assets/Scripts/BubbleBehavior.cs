@@ -81,4 +81,19 @@ public class BubbleBehavior : MonoBehaviour
             }
         }
     }
+
+    public bool HasEmptySpaceBelow()
+    {
+        //check down
+        if (GameManager.bubbles.TryGetValue(new Vector2(location.x, location.y - 1), out GameObject bubbleDown))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    public void DropOneSpace()
+    {
+        transform.position = new Vector2(transform.position.x, transform.position.y - 1);
+    }
 }
