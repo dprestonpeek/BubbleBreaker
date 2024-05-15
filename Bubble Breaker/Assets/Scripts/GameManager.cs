@@ -13,13 +13,13 @@ public class GameManager : MonoBehaviour
     [SerializeField]
     TMP_Text Score;
     [SerializeField]
-    TMP_Text Best;
+    TMP_Text Best,StartBest;
     [SerializeField]
     GameObject ScorePopup;
     [SerializeField]
     TMP_Text ScorePopupText;
     [SerializeField]
-    GameObject EndGame;
+    GameObject EndGame,StartGameWindow;
     [SerializeField]
     TMP_Text EndScore;
     [SerializeField]
@@ -33,6 +33,7 @@ public class GameManager : MonoBehaviour
     private static int combo;
     private static int amountScorePopup;
     private static float scorePopupInit;
+    private static bool playGame = false;
 
     //timers
     private static float gameTimerTarget = 0;
@@ -85,13 +86,8 @@ public class GameManager : MonoBehaviour
         audio = GetComponent<AudioSource>();
         bubbles = new Dictionary<Vector2, GameObject>();
         buttons = GameObject.FindObjectsOfType<Button>();
-        foreach (Button button in buttons)
-        {
-            string[] buttonXY = button.name.Split(",");
-            Vector2 location = new Vector2(float.Parse(buttonXY[0]), float.Parse(buttonXY[1]));
-            bubbles.Add(location, Instantiate(bubblePrefabs[Random.Range(0, bubblePrefabs.Count - includeBlack)], location, Quaternion.identity, transform));
-        }
         best = PlayerPrefs.GetInt("best");
+        StartBest.text = best.ToString();
         score = 0;
         updateScores = true;
     }
@@ -99,6 +95,14 @@ public class GameManager : MonoBehaviour
     // Update is called once per frame
     void FixedUpdate()
     {
+        if (!playGame)
+        {
+            if (!StartGameWindow.activeSelf)
+            {
+                StartGameWindow.SetActive(true);
+            }
+            return;
+        }
         OnTimerTick();
         if (gameTimer <= gameTimerTarget)
         {
@@ -190,6 +194,18 @@ public class GameManager : MonoBehaviour
         if (spacesToFill != null && locationsToRepopulate != null && spacesToFill.Count == 0 && locationsToRepopulate.Count == 0)
         {
             performingMove = false;
+        }
+    }
+
+    public void StartGame()
+    {
+        StartGameWindow.SetActive(false);
+        playGame = true;
+        foreach (Button button in buttons)
+        {
+            string[] buttonXY = button.name.Split(",");
+            Vector2 location = new Vector2(float.Parse(buttonXY[0]), float.Parse(buttonXY[1]));
+            bubbles.Add(location, Instantiate(bubblePrefabs[Random.Range(0, bubblePrefabs.Count - includeBlack)], location, Quaternion.identity, transform));
         }
     }
 
@@ -548,6 +564,13 @@ public class GameManager : MonoBehaviour
         score = 0;
         updateScores = true;
         endGame = false;
-        SceneManager.LoadScene(0);
+        EndGame.SetActive(false);
+        foreach (KeyValuePair<Vector2, GameObject> bubble in bubbles)
+        {
+            Destroy(bubble.Value);
+        }
+        bubbles.Clear();
+        //SceneManager.LoadScene(0);
+        StartGame();
     }
 }
